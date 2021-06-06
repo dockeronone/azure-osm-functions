@@ -15,7 +15,7 @@ from os import environ
 from functools import reduce
 
 def convert_property(value):
-    if type(value) is str:
+    if type(value) is str or type(value) is list:
         return f'\"{value}\"'
     elif type(value) is LineString:
         x, y = value.xy
@@ -44,7 +44,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
     if address and len(gremlin_uri) > 0:
         nx_g = ox.graph_from_address(address)
-        waypoints = list(map(lambda n: {"id": str(n[0]), "waypoint_id": n[0], **n[1]}, nx_g.nodes(data=True)))
+        waypoints = list(map(lambda n: {"id": str(n[0]), "waypoint_id": n[0], "address": address, **n[1]}, nx_g.nodes(data=True)))
 
         client = Client(gremlin_uri,
                         'g',
@@ -64,16 +64,25 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         for waypoint in waypoints:
             query = '.'.join(["g.addV(\"waypoint\")", *list(map(lambda x: f"property(\"{x[0]}\", {convert_property(x[1])})", waypoint.items()))])
             
-            client.submitAsync(query)
+            try:
+                client.submitAsync(query)
+            except Exception as e:
+                logging.error(f"DB insertion failed with error: {e}")
 
         for edge in nx_g.edges(data=True):
             v1 = str(edge[0])
             v2 = str(edge[1])
 
-            query = '.'.join([f"g.V(\"{v1}\").addE(\"routes\").to(\"{v2}\")", *list(map(lambda x: f"property(\"{x[0]}\", {convert_property(x[1])})", edge[2].items()))])
+            query = '.'.join([f"g.V(\"{v1}\").addE(\"routes\").to(g.V(\"{v2}\"))", 
+                              *list(map(lambda x: f"property(\"{x[0]}\", {convert_property(x[1])})", edge[2].items())),
+                              f"property(\"address\", \"{address}\")"])
 
-            client.submitAsync(query)
+            try:
+                client.submitAsync(query)
+            except Exception as e:
+                logging.error(f"DB insertion failed with error: {e}")
 
+        client.close()
         return func.HttpResponse(f"This HTTP triggered function executed successfully.")
     else:
         return func.HttpResponse(
