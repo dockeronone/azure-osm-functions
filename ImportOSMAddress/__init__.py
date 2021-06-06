@@ -33,6 +33,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     gremlin_password = environ.get("GREMLIN_PASSWORD", "")
 
     address = req.params.get('address')
+    delete_graph = req.params.get('deleteGraph')
 
     if not address:
         try:
@@ -40,7 +41,11 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         except ValueError:
             pass
         else:
-            address = req_body.get('address', "Ashdod")
+            address = req_body.get('address')
+            delete_graph = req_body.get('deleteGraph', False)
+
+    if not delete_graph:
+        delete_graph = False
 
     if address and len(gremlin_uri) > 0:
         nx_g = ox.graph_from_address(address)
@@ -59,13 +64,14 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                                                                                 message_serializer=GraphSONSerializersV2d0()))
 
         # Cleanup
-        client.submit("g.V().drop()")
+        if delete_graph:
+            client.submit("g.V().drop()")
 
         for waypoint in waypoints:
             query = '.'.join(["g.addV(\"waypoint\")", *list(map(lambda x: f"property(\"{x[0]}\", {convert_property(x[1])})", waypoint.items()))])
             
             try:
-                client.submitAsync(query)
+                client.submit(query)
             except Exception as e:
                 logging.error(f"DB insertion failed with error: {e}")
 
@@ -78,7 +84,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                               f"property(\"address\", \"{address}\")"])
 
             try:
-                client.submitAsync(query)
+                client.submit(query)
             except Exception as e:
                 logging.error(f"DB insertion failed with error: {e}")
 
